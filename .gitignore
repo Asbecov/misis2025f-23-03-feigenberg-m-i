@@ -1,0 +1,76 @@
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+# ---- Build output ----
+build/
+bin/
+out/
+*.o
+*.obj
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+*.exe
+*.pdb
+*.ilk
+*.manifest
+
+# ---- Generated or temporary files ----
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+*.user
+*.workspace
+*.code-workspace
+*.VC.db
+*.VC.opendb
+
+# ---- macOS / Linux / Windows cruft ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Python tools ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+env/
+venv/
+
+# ---- Test artifacts ----
+test_images/
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.bmp
+task01.lst
+out_collage.png
+
+# ---- Backup files ----
+*~
+*.orig
+*.rej
+
+# ---- CMake presets cache ----
+CMakeUserPresets.json
