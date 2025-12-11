@@ -50,3 +50,33 @@ std::vector<std::filesystem::path> get_list_of_file_paths(const std::filesystem:
     return out;
 }
 
+cv::Mat gen_img(const int width, const int height, const int stripe_w) {
+    cv::Mat img(height, width, CV_8UC1, cv::Scalar(0));
+    const int num_stripes = width / stripe_w;
+    for (int sx = 0; sx < num_stripes; ++sx) {
+        const double t = sx / (num_stripes - 1.0);
+        const int val = std::round(t * 255);
+        const int x0 = sx * stripe_w;
+        const int x1 = std::min(width, x0 + stripe_w);
+        const cv::Point point1(x0, 0);
+        const cv::Point point2(x1 - 1, height - 1);
+        cv::rectangle(img, point1, point2, cv::Scalar(val), cv::FILLED);
+    }
+    return img;
+}
+
+cv::Mat gamma_correct(const cv::Mat& img, const double gamma) {
+    cv::Mat lut(1, 256, CV_8UC1);
+    for (int i = 0; i < 256; ++i) {
+        const double v = i / 255.0;
+        const double out = std::pow(v, 1.0 / gamma);
+        const int iv = std::clamp(std::round(out * 255), 0.0 , 255.0);
+        lut.at<uint8_t>(i) = iv;
+    }
+    cv::Mat res;
+    cv::LUT(img, lut, res);
+    return res;
+}
+
+
+

@@ -12,6 +12,7 @@ std::string strid_from_mat(const cv::Mat& img, const int n = 4);
 
 std::vector<std::filesystem::path> get_list_of_file_paths(const std::filesystem::path& path_lst);
 
-cv::Mat gen_tgtimg00(const int lev0, const int lev1, const int lev2);
+cv::Mat gen_img(const int width = 768, const int height = 30, const int stripe_w = 3);
 
+cv::Mat gamma_correct(const cv::Mat& img, const double gamma);
 #endif

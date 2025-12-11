@@ -11,19 +11,18 @@ int main(int argc, char **argv) {
     const std::vector<std::filesystem::path> list = get_list_of_file_paths(argv[1]);
     for (std::filesystem::path const &path : list) {
         const std::string file_name = path.filename().string();
-        const cv::Mat img = cv::imread(p.string(), cv::IMREAD_GRAYSCALE);
+        const cv::Mat img = cv::imread(path.string(), cv::IMREAD_UNCHANGED);
         if (img.empty()) {
-            std::cout << fname << "\t" << "bad, cannot open" << std::endl;
+            std::cout << file_name << "\t" << "bad, cannot open" << std::endl;
             continue;
         }
         const std::string actual = strid_from_mat(img);
         const std::string stem = path.stem().string();
-
         if (actual == stem) {
-            std::cout << fname << "\tgood" << std::endl;
+            std::cout << file_name << "\tgood" << std::endl;
         }
         else {
-            std::cout << fname << "\tbad, should be " << actual << std::endl;
+            std::cout << file_name << "\tbad, should be " << actual << std::endl;
         }
     }
     return 0;
