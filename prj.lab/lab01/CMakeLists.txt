@@ -1,6 +1,6 @@
 add_executable(task01-01 task01-01.cpp)
 target_link_libraries(task01-01 semcv)
-add_executable(task01-01_generate task01-01_generate_files.cpp)
-target_link_libraries(task01-01_generate semcv)
+add_executable(task01-01-generate generate_files.cpp)
+target_link_libraries(task01-01-generate semcv)
 add_executable(task01-02 task01-02.cpp)
 target_link_libraries(task01-02 semcv)

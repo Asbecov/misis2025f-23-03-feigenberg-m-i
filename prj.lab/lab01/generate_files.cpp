@@ -6,20 +6,18 @@
 
 
 std::string getProjectRootDir() {
-    // Get directory of this source file
     std::filesystem::path src_path(__FILE__);
-    std::filesystem::path parent = src_path.parent_path(); // prj.lab/lab01/
+    std::filesystem::path parent = src_path.parent_path();
     return parent.string();
 }
 
 int main() {
     std::string project_dir = getProjectRootDir();
-    std::string output_dir = project_dir + "\\test_images\\";
+    std::string output_dir = project_dir + "/test_images/";
 
     std::filesystem::create_directories(output_dir);
     std::cout << "Output directory: " << output_dir << std::endl;
 
-    // Rest of your code remains the same...
     std::vector<std::pair<int, int>> specs = {
         {CV_8U,  1}, {CV_8U,  3}, {CV_8U,  4},
         {CV_8S,  1}, {CV_8S,  3},
@@ -35,8 +33,6 @@ int main() {
     for (auto [depth, channels] : specs) {
         constexpr int H = 64;
         constexpr int W = 64;
-        // ... your existing image creation code
-        // Create image of the required format
         cv::Mat img;
         switch (depth) {
             case CV_8U:  { cv::Mat tmp(H, W, CV_MAKETYPE(CV_8U, channels), cv::Scalar(128)); img = tmp; } break;
@@ -51,7 +47,6 @@ int main() {
 
         std::string strid = strid_from_mat(img);
 
-        // Save in supported formats
         std::vector<std::string> exts;
         if (depth == CV_8U && (channels == 1 || channels == 3)) {
             exts = {"jpg", "png", "tiff"};
