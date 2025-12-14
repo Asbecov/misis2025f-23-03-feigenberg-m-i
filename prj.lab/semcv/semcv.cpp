@@ -50,7 +50,7 @@ std::vector<std::filesystem::path> get_list_of_file_paths(const std::filesystem:
     return out;
 }
 
-cv::Mat gen_img(const int width, const int height, const int stripe_w) {
+cv::Mat gen_gray_bars(const int width, const int height, const int stripe_w) {
     cv::Mat img(height, width, CV_8UC1, cv::Scalar(0));
     const int num_stripes = width / stripe_w;
     for (int sx = 0; sx < num_stripes; ++sx) {
@@ -67,15 +67,113 @@ cv::Mat gen_img(const int width, const int height, const int stripe_w) {
 
 cv::Mat gamma_correct(const cv::Mat& img, const double gamma) {
     cv::Mat lut(1, 256, CV_8UC1);
+    uchar* lut_ptr = lut.ptr();
     for (int i = 0; i < 256; ++i) {
-        const double v = i / 255.0;
-        const double out = std::pow(v, 1.0 / gamma);
-        const int iv = std::clamp(std::round(out * 255), 0.0 , 255.0);
-        lut.at<uint8_t>(i) = iv;
+        const double value = i / 255.0;
+        const double out = std::pow(value, 1.0 / gamma);
+        const uchar iv = cv::saturate_cast<uchar>(std::clamp(std::round(out * 255), 0.0 , 255.0));
+        lut_ptr[i]= iv;
     }
     cv::Mat res;
     cv::LUT(img, lut, res);
     return res;
+}
+
+cv::Mat gen_tgtimg00(int lev0, int lev1, int lev2) {
+    cv::Mat img(IMG_SIZE, IMG_SIZE, CV_8UC1, cv::Scalar(lev0));
+    constexpr int square_x = (256 - SQ_SIZE) / 2;
+    constexpr int square_y = (256 - SQ_SIZE) / 2;
+    const cv::Point center(IMG_SIZE / 2, IMG_SIZE / 2);
+    cv::rectangle(img, cv::Rect(square_x, square_y, SQ_SIZE, SQ_SIZE), cv::Scalar(lev1), cv::FILLED);
+    cv::circle(img, center, RADIUS, cv::Scalar(lev2), cv::FILLED);
+    return img;
+}
+
+cv::Mat add_noise_gau(const cv::Mat &img, int sigma) {
+    if (sigma == 0) return img.clone();
+
+    cv::Mat noise(img.rows, img.cols, CV_32FC1);
+    cv::randn(noise, 0.0, sigma);
+
+    cv::Mat img32f;
+    img.convertTo(img32f, CV_32F);
+
+    cv::Mat noisy32f = img32f + noise;
+
+    cv::Mat result;
+    noisy32f.convertTo(result, CV_8U);
+
+    return result;
+}
+
+cv::Mat draw_histogram_8u(const cv::Mat& img, const cv::Scalar& background_color, const cv::Scalar& bar_color) {
+    constexpr int hist_size = 256;
+    float range[] = {0.f, 256.f};
+    const float* ranges[] = { range };
+    cv::Mat hist;
+    cv::calcHist(&img, 1, nullptr, cv::Mat(), hist, 1, &hist_size, ranges, true, false);
+
+    double max_val = 0.0;
+    cv::minMaxLoc(hist, nullptr, &max_val);
+    cv::Mat normal_hist;
+    if (max_val > 0) {
+        normal_hist = hist * (250.0 / max_val);
+    } else {
+        normal_hist = cv::Mat::zeros(hist.size(), hist.type());
+    }
+
+    cv::Mat canvas(hist_size, hist_size, CV_8UC3, cv::Scalar(background_color));
+    for (int i = 0; i < 256; ++i) {
+        const int h = cvRound(normal_hist.at<float>(i));
+        if (h <= 0) continue;
+        cv::rectangle(canvas,
+                      cv::Point(i, 255),
+                      cv::Point(i, 255 - std::min(h, 250)),
+                      bar_color,
+                      cv::FILLED);
+    }
+    return canvas;
+}
+
+PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat& mask) {
+    PixelDistributionStats s{};
+    double sum = 0.0, sum2 = 0.0;
+    double min = std::numeric_limits<double>::infinity();
+    double max = -std::numeric_limits<double>::infinity();
+    int count = 0;
+
+    const int rows = img.rows, cols = img.cols;
+    for (int y = 0; y < rows; ++y) {
+        const uchar* img_column_ptr = img.ptr(y);
+        const uchar* mask_column_ptr = mask.empty() ? nullptr : mask.ptr<uchar>(y);
+        for (int x = 0; x < cols; ++x) {
+            if (mask_column_ptr && mask_column_ptr[x] == 0) continue;
+            const double value = img_column_ptr[x];
+            sum += value;
+            sum2 += value * value;
+            if (value < min) min = value;
+            if (value > max) max = value;
+            ++count;
+        }
+    }
+
+    if (count == 0) {
+        s.count = 0;
+        s.mean = s.variance = s.stddev = s.minimum = s.maximum = std::numeric_limits<double>::quiet_NaN();
+        return s;
+    }
+
+    const double mean = sum / count;
+    const double var = std::max(0.0, sum2 / count - mean * mean); // дисперсия (несмещённая можно по желанию)
+    const double stddev = std::sqrt(var);
+
+    s.count = count;
+    s.mean = mean;
+    s.variance = var;
+    s.stddev = stddev;
+    s.minimum = min;
+    s.maximum = max;
+    return s;
 }
 
 

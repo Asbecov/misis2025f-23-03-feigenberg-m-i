@@ -3,10 +3,10 @@
 
 #include <semcv/semcv.hpp>
 
-int main(int argc, char **argv) {
+int main(const int argc, char **argv) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <path to .lst file>" << std::endl;
-        return 2;
+        return 1;
     }
     const std::vector<std::filesystem::path> list = get_list_of_file_paths(argv[1]);
     for (std::filesystem::path const &path : list) {
