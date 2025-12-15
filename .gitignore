@@ -59,8 +59,6 @@ venv/
 
 # ---- Test artifacts ----
 test_images/
-*.png
-*.jpg
 *.jpeg
 *.tiff
 *.bmp
