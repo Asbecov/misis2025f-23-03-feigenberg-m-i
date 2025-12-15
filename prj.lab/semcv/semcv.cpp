@@ -176,5 +176,80 @@ PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat
     return s;
 }
 
+cv::Mat to_grayscale(const cv::Mat& img) {
+    if (img.channels() == 1) return img;
+
+    cv::Mat gray;
+    if (img.channels() == 3) {
+        cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
+    } else if (img.channels() == 4) {
+        cv::cvtColor(img, gray, cv::COLOR_BGRA2GRAY);
+    } else {
+        std::vector<cv::Mat> channels;
+        cv::split(img, channels);
+        gray = channels[0].clone();
+    }
+    return gray;
+}
+
+cv::Mat global_binarization(const cv::Mat &img, const int threshold, const int maxVal) {
+    CV_Assert(img.type() == CV_8UC1);
+
+    cv::Mat binary;
+    cv::threshold(img, binary, threshold, maxVal, cv::THRESH_BINARY);
+    return binary;
+}
 
 
+cv::Mat overlay_mask(const cv::Mat& img, const cv::Mat& mask, const cv::Scalar& mask_color, const double alpha) {
+    CV_Assert(img.size() == mask.size());
+    CV_Assert(mask.type() == CV_8UC1);
+
+    cv::Mat img_color;
+    if (img.channels() == 1) {
+        cv::cvtColor(img, img_color, cv::COLOR_BGR2GRAY);
+    } else {
+        img_color = img.clone();
+    }
+
+    cv::Mat colored_mask;
+    cv::cvtColor(mask, colored_mask, cv::COLOR_GRAY2BGR);
+    colored_mask.setTo(mask_color, mask > 0);
+
+    cv::Mat result;
+    cv::addWeighted(img_color, 1.0 - alpha, colored_mask, alpha, 0.0, result);
+
+    return result;
+}
+
+BinaryClassificationMetrics calc_binary_metrics(const cv::Mat& predicted_mask, const cv::Mat& mask) {
+    CV_Assert(predicted_mask.size() == mask.size());
+    CV_Assert(predicted_mask.type() == CV_8UC1);
+    CV_Assert(mask.type() == CV_8UC1);
+
+    BinaryClassificationMetrics metrics{};
+
+    const int rows = predicted_mask.rows;
+    const int cols = predicted_mask.cols;
+
+    for (int y = 0; y < rows; ++y) {
+        const uchar* predicted_ptr = predicted_mask.ptr<uchar>(y);
+        const uchar* mask_ptr = mask.ptr<uchar>(y);
+        for (int x = 0; x < cols; ++x) {
+            const bool predicted_pixel = (predicted_ptr[x] > 0);
+            const bool mask_pixel = (mask_ptr[x] > 0);
+
+            if (predicted_pixel && mask_pixel) {
+                metrics.TP++;
+            } else if (predicted_pixel && !mask_pixel) {
+                metrics.FP++;
+            } else if (!predicted_pixel && mask_pixel) {
+                metrics.FN++;
+            } else {
+                metrics.TN++;
+            }
+        }
+    }
+
+    return metrics;
+}
