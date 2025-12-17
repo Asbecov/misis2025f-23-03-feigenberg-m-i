@@ -123,7 +123,7 @@ cv::Mat draw_histogram_8u(const cv::Mat& img, const cv::Scalar& background_color
     }
 
     cv::Mat canvas(hist_size, hist_size, CV_8UC3, cv::Scalar(background_color));
-    for (int i = 0; i < 256; ++i) {
+    for (int i = 0; i < hist_size; ++i) {
         const int h = cvRound(normal_hist.at<float>(i));
         if (h <= 0) continue;
         cv::rectangle(canvas,
@@ -164,12 +164,12 @@ PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat
     }
 
     const double mean = sum / count;
-    const double var = std::max(0.0, sum2 / count - mean * mean); // дисперсия (несмещённая можно по желанию)
-    const double stddev = std::sqrt(var);
+    const double variance = std::max(0.0, sum2 / count - mean * mean); // дисперсия (несмещённая можно по желанию)
+    const double stddev = std::sqrt(variance);
 
     s.count = count;
     s.mean = mean;
-    s.variance = var;
+    s.variance = variance;
     s.stddev = stddev;
     s.minimum = min;
     s.maximum = max;
@@ -207,7 +207,7 @@ cv::Mat overlay_mask(const cv::Mat& img, const cv::Mat& mask, const cv::Scalar& 
 
     cv::Mat img_color;
     if (img.channels() == 1) {
-        cv::cvtColor(img, img_color, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(img, img_color, cv::COLOR_GRAY2BGR);
     } else {
         img_color = img.clone();
     }

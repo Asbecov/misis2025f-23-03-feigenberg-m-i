@@ -59,7 +59,10 @@ void quality_assessment(const std::string& img_path, const std::string& mask_pat
         cv::Mat binary = global_binarization(gray, t);
         BinaryClassificationMetrics metrics = calc_binary_metrics(binary, mask);
 
-        if (metrics.IoU() > best_iou) best_threshold = t;
+        if (metrics.IoU() > best_iou) {
+            best_threshold = t;
+            best_iou = metrics.IoU();
+        }
 
         ofs << std::fixed << std::setprecision(2)
             << t << ","

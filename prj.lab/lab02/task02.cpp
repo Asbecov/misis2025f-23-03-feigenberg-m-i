@@ -63,7 +63,7 @@ void gen_save_stats(const cv::Mat& img, const std::array<int, 3>& brightness, co
         const auto [count, mean, variance, stddev, minimum, maximum] = calc_distribution_stats(img, mask);
         const double theory_level = brightness[iteration_count];
         double mean_diff = mean - theory_level;
-        double var_diff = variance - theory_level;
+        double var_diff = variance - theory_variance;
 
         ofs << name << " "
             << std::fixed << std::setprecision(3)
