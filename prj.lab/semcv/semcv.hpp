@@ -30,8 +30,8 @@ struct PixelDistributionStats {
     double mean{};
     double variance{};
     double stddev{};
-    double minimum{};
-    double maximum{};
+    int minimum{};
+    int maximum{};
 };
 
 PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat& mask);
@@ -81,5 +81,9 @@ struct BinaryClassificationMetrics {
 
 BinaryClassificationMetrics calc_binary_metrics(const cv::Mat& predicted_mask, const cv::Mat& mask);
 
+// lab_04
+cv::Mat create_segmentation_mask(const cv::Mat& img);
+
+cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask);
 
 #endif

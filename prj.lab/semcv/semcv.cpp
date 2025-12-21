@@ -137,9 +137,9 @@ cv::Mat draw_histogram_8u(const cv::Mat& img, const cv::Scalar& background_color
 
 PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat& mask) {
     PixelDistributionStats s{};
-    double sum = 0.0, sum2 = 0.0;
-    double min = std::numeric_limits<double>::infinity();
-    double max = -std::numeric_limits<double>::infinity();
+    int sum = 0, sum2 = 0;
+    int min = std::numeric_limits<int>::infinity();
+    int max = -std::numeric_limits<int>::infinity();
     int count = 0;
 
     const int rows = img.rows, cols = img.cols;
@@ -148,7 +148,7 @@ PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat
         const uchar* mask_column_ptr = mask.empty() ? nullptr : mask.ptr<uchar>(y);
         for (int x = 0; x < cols; ++x) {
             if (mask_column_ptr && mask_column_ptr[x] == 0) continue;
-            const double value = img_column_ptr[x];
+            const uchar value = img_column_ptr[x];
             sum += value;
             sum2 += value * value;
             if (value < min) min = value;
@@ -158,13 +158,13 @@ PixelDistributionStats calc_distribution_stats(const cv::Mat& img, const cv::Mat
     }
 
     if (count == 0) {
-        s.count = 0;
-        s.mean = s.variance = s.stddev = s.minimum = s.maximum = std::numeric_limits<double>::quiet_NaN();
+        s.count = s.minimum = s.maximum = 0;
+        s.mean = s.variance = s.stddev = std::numeric_limits<double>::quiet_NaN();
         return s;
     }
 
-    const double mean = sum / count;
-    const double variance = std::max(0.0, sum2 / count - mean * mean); // дисперсия (несмещённая можно по желанию)
+    const double mean = static_cast<double>(sum) / count;
+    const double variance = std::max(0.0, static_cast<double>(sum2) / count - mean * mean);
     const double stddev = std::sqrt(variance);
 
     s.count = count;
@@ -252,4 +252,78 @@ BinaryClassificationMetrics calc_binary_metrics(const cv::Mat& predicted_mask, c
     }
 
     return metrics;
+}
+
+
+cv::Mat create_segmentation_mask(const cv::Mat& img) {
+    const cv::Mat gray = to_grayscale(img);
+
+    cv::Mat binary_image;
+    cv::threshold(gray, binary_image, 0, 255, cv::THRESH_OTSU + cv::THRESH_BINARY_INV);
+
+    const cv::Mat kernel = cv::Mat::ones(3, 3, CV_8UC1);
+    cv::morphologyEx(binary_image, binary_image, cv::MORPH_CLOSE, kernel, cv::Point(-1, -1), 3);
+
+    cv::Mat sure_bg;
+    cv::dilate(binary_image, sure_bg, kernel, cv::Point(-1, -1), 3);
+
+    cv::Mat dist;
+    cv::distanceTransform(binary_image, dist, cv::DIST_L2, 5);
+    dist.convertTo(dist, CV_8UC1);
+
+    double max_val;
+    cv::minMaxLoc(dist, nullptr, &max_val);
+
+    cv::Mat sure_fg;
+    cv::threshold(dist, sure_fg, 0.55 * max_val, 255, cv::THRESH_BINARY);
+
+    cv::Mat unknown;
+    cv::subtract(sure_bg, sure_fg, unknown);
+
+    cv::Mat markers;
+    cv::connectedComponents(sure_fg, markers);
+    markers += 1;
+    markers.setTo(0, unknown == 255);
+
+    cv::watershed(img, markers);
+
+    return markers;
+}
+
+cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask) {
+    CV_Assert(mask.type() == CV_32S);  // маска после watershed
+    CV_Assert(img.size() == mask.size());
+
+    cv::Mat result;
+    if (img.channels() == 1) {
+        cv::cvtColor(img, result, cv::COLOR_GRAY2BGR);
+    } else {
+        result = img.clone();
+    }
+
+    std::vector<cv::Vec3b> colors;
+    int n_labels = 0;
+    mask.forEach<int>([&](const int val, const int* pos) { if (val > n_labels) n_labels = val; });
+    colors.resize(n_labels + 1);
+    colors[0] = cv::Vec3b(0, 0, 0);
+    for (int i = 1; i <= n_labels; ++i) {
+        colors[i] = cv::Vec3b(rand() % 256, rand() % 256, rand() % 256);
+    }
+
+    for (int y = 0; y < mask.rows; ++y) {
+        const int* mask_ptr = mask.ptr<int>(y);
+        cv::Vec3b* res_ptr = result.ptr<cv::Vec3b>(y);
+        for (int x = 0; x < mask.cols; ++x) {
+            int idx = mask_ptr[x];
+            if (idx > 0) {
+                res_ptr[x] = colors[idx];
+            } else if (idx == -1) {
+                res_ptr[x] = cv::Vec3b(0, 0, 255);
+            }
+        }
+    }
+
+    cv::addWeighted(result, 0.5, img, 0.5, 0, result);
+
+    return result;
 }

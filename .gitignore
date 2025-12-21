@@ -14,6 +14,7 @@ CPackSourceConfig.cmake
 build/
 bin/
 out/
+bin.*/
 *.o
 *.obj
 *.so

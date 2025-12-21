@@ -44,9 +44,10 @@ void gen_save_stats(const cv::Mat& img, const std::array<int, 3>& brightness, co
     const double theory_variance = std::pow(sigma, 2);
     const RegionMasks masks = generate_masks();
     ofs << "Stats for the following parameters: brightness {"
-        << brightness[0] << ", " << brightness[1]
-        << ", " << brightness[2]
-        << "}, sigma " << sigma << std::endl;
+        << brightness[0] << ", "
+        << brightness[1] << ", "
+        << brightness[2] << "}, sigma "
+        << sigma << std::endl;
 
     ofs << "name, theory_level, mean_exp, diff_mean, var_theory, var_exp, diff_var, count, stddev, min, max" << std::endl;
 
@@ -62,8 +63,8 @@ void gen_save_stats(const cv::Mat& img, const std::array<int, 3>& brightness, co
     for (const auto [name, mask] : masks_names) {
         const auto [count, mean, variance, stddev, minimum, maximum] = calc_distribution_stats(img, mask);
         const double theory_level = brightness[iteration_count];
-        double mean_diff = mean - theory_level;
-        double var_diff = variance - theory_variance;
+        double mean_diff = std::abs(mean - theory_level);
+        double var_diff = std::abs(variance - theory_variance);
 
         ofs << name << " "
             << std::fixed << std::setprecision(3)
