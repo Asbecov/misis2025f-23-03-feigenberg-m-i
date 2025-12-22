@@ -82,8 +82,23 @@ struct BinaryClassificationMetrics {
 BinaryClassificationMetrics calc_binary_metrics(const cv::Mat& predicted_mask, const cv::Mat& mask);
 
 // lab_04
-cv::Mat create_segmentation_mask(const cv::Mat& img);
+struct SegmentationMetrics {
+    double mean_iou{0.0};
+    double mean_precision{0.0};
+    double mean_recall{0.0};
+    double mean_accuracy{0.0};
+
+    int TP_instances{0};
+    int FP_instances{0};
+    int FN_instances{0};
+};
+
+cv::Mat create_segmentation_mask(const cv::Mat& img, const double threshold_fg = 0.55);
 
 cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask);
+
+SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double threshold, double iou_threshold = 0.5);
+
+cv::Mat visualize_match(const cv::Mat& gt, const cv::Mat& segment);
 
 #endif

@@ -255,7 +255,7 @@ BinaryClassificationMetrics calc_binary_metrics(const cv::Mat& predicted_mask, c
 }
 
 
-cv::Mat create_segmentation_mask(const cv::Mat& img) {
+cv::Mat create_segmentation_mask(const cv::Mat& img, const double threshold_fg) {
     const cv::Mat gray = to_grayscale(img);
 
     cv::Mat binary_image;
@@ -275,7 +275,7 @@ cv::Mat create_segmentation_mask(const cv::Mat& img) {
     cv::minMaxLoc(dist, nullptr, &max_val);
 
     cv::Mat sure_fg;
-    cv::threshold(dist, sure_fg, 0.55 * max_val, 255, cv::THRESH_BINARY);
+    cv::threshold(dist, sure_fg, threshold_fg * max_val, 255, cv::THRESH_BINARY);
 
     cv::Mat unknown;
     cv::subtract(sure_bg, sure_fg, unknown);
@@ -324,6 +324,97 @@ cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask) {
     }
 
     cv::addWeighted(result, 0.5, img, 0.5, 0, result);
+
+    return result;
+}
+
+SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double threshold, const double iou_threshold) {
+    CV_Assert(predicted_markers.type() == CV_32S);
+
+    SegmentationMetrics result;
+
+    const int rows = predicted_markers.rows;
+    const int cols = predicted_markers.cols;
+
+    std::map<int, cv::Mat> pred_instances_map;
+    for (int y = 0; y < rows; ++y) {
+        const int* row_ptr = predicted_markers.ptr<int>(y);
+        for (int x = 0; x < cols; ++x) {
+            int label = row_ptr[x];
+            if (label <= 0) continue;
+
+            if (!pred_instances_map.contains(label)) {
+                pred_instances_map[label] = cv::Mat::zeros(predicted_markers.size(), CV_8UC1);
+            }
+            pred_instances_map[label].at<uchar>(y, x) = 255;
+        }
+    }
+
+    std::vector<cv::Mat> pred_instances;
+    for (std::map<int, cv::Mat>::iterator it = pred_instances_map.begin(); it != pred_instances_map.end(); ++it) {
+        if (cv::countNonZero(it->second) > 20) {
+            pred_instances.push_back(it->second);
+        }
+    }
+
+    std::vector<int> gt_areas;
+    for (size_t j = 0; j < gt_masks.size(); ++j) {
+        gt_areas.push_back(cv::countNonZero(gt_masks[j]));
+    }
+    std::vector<bool> gt_used(gt_masks.size(), false);
+
+    double sum_iou_weighted = 0.0;
+    int total_gt_area = 0;
+
+    for (size_t i = 0; i < pred_instances.size(); ++i) {
+        double best_iou = 0.0;
+        int best_gt = -1;
+        BinaryClassificationMetrics best_metrics;
+
+        for (size_t j = 0; j < gt_masks.size(); ++j) {
+            if (gt_used[j]) continue;
+
+            BinaryClassificationMetrics metrics = calc_binary_metrics(pred_instances[i], gt_masks[j]);
+            if (const double iou = metrics.IoU(); iou > best_iou) {
+                best_iou = iou;
+                best_gt = j;
+                best_metrics = metrics;
+            }
+        }
+
+        if (best_gt != -1 && best_iou >= iou_threshold) {
+            gt_used[best_gt] = true;
+            result.TP_instances++;
+
+            const int area = gt_areas[best_gt];
+            sum_iou_weighted += best_metrics.IoU() * area;
+            total_gt_area += area;
+
+            result.mean_precision += best_metrics.Precision();
+            result.mean_recall    += best_metrics.TPR();
+            result.mean_accuracy  += best_metrics.Accuracy();
+        }
+    }
+
+    for (size_t j = 0; j < gt_masks.size(); ++j) {
+        if (!gt_used[j]) {
+            total_gt_area += gt_areas[j];
+        }
+    }
+
+    if (total_gt_area > 0) {
+        result.mean_iou = sum_iou_weighted / total_gt_area;
+    }
+
+    if (result.TP_instances > 0) {
+        const double n = static_cast<double>(result.TP_instances);
+        result.mean_precision /= n;
+        result.mean_recall    /= n;
+        result.mean_accuracy  /= n;
+    }
+
+    result.FP_instances = pred_instances.size() - result.TP_instances;
+    result.FN_instances = gt_masks.size() - result.TP_instances;
 
     return result;
 }
