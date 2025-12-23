@@ -97,6 +97,20 @@ cv::Mat create_segmentation_mask(const cv::Mat& img, const double threshold_fg =
 
 cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask);
 
-SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double threshold, double iou_threshold = 0.5);
+SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double iou_threshold = 0.5);
+
+
+// lab_05
+struct Detection {
+    cv::Mat mask;
+    cv::Rect bbox;
+    double score = 0.0;
+};
+
+static cv::Rect mask_to_bbox(const cv::Mat& m);
+
+std::vector<Detection> detect(const cv::Mat& img, const std::vector<double>& scales = {1.0, 0.75, 0.5});
+
+cv::Mat visualize_detection(const cv::Mat& img, const std::vector<Detection>& detections, const double alpha = 0.4);
 
 #endif

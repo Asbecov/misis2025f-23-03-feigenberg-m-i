@@ -1,4 +1,5 @@
 #include <fstream>
+#include <utility>
 #include <opencv2/opencv.hpp>
 
 #include <semcv/semcv.hpp>
@@ -269,13 +270,13 @@ cv::Mat create_segmentation_mask(const cv::Mat& img, const double threshold_fg) 
 
     cv::Mat dist;
     cv::distanceTransform(binary_image, dist, cv::DIST_L2, 5);
-    dist.convertTo(dist, CV_8UC1);
 
     double max_val;
     cv::minMaxLoc(dist, nullptr, &max_val);
 
     cv::Mat sure_fg;
     cv::threshold(dist, sure_fg, threshold_fg * max_val, 255, cv::THRESH_BINARY);
+    sure_fg.convertTo(sure_fg, CV_8U);
 
     cv::Mat unknown;
     cv::subtract(sure_bg, sure_fg, unknown);
@@ -328,7 +329,7 @@ cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask) {
     return result;
 }
 
-SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double threshold, const double iou_threshold) {
+SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double iou_threshold) {
     CV_Assert(predicted_markers.type() == CV_32S);
 
     SegmentationMetrics result;
@@ -354,11 +355,6 @@ SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, 
     const size_t pred_size = pred_instances.size();
     const size_t gt_size   = gt_masks.size();
 
-    std::vector<int> gt_areas;
-    for (size_t j = 0; j < gt_size; ++j) {
-        gt_areas.push_back(cv::countNonZero(gt_masks[j]));
-    }
-
     struct IoUPair {
         size_t pred_idx;
         size_t gt_idx;
@@ -371,15 +367,7 @@ SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, 
     for (size_t i = 0; i < pred_size; ++i) {
         for (size_t j = 0; j < gt_size; ++j) {
             BinaryClassificationMetrics metrics = calc_binary_metrics(pred_instances[i], gt_masks[j]);
-
-            if (const double iou = metrics.IoU(); iou >= iou_threshold) {
-                IoUPair pair;
-                pair.pred_idx = i;
-                pair.gt_idx = j;
-                pair.iou = iou;
-                pair.metrics = metrics;
-                pairs.push_back(pair);
-            }
+            if (const double iou = metrics.IoU(); iou >= iou_threshold) pairs.push_back(IoUPair{i, j, metrics.IoU(), metrics});
         }
     }
 
@@ -388,45 +376,190 @@ SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, 
     std::vector<bool> pred_used(pred_size, false);
     std::vector<bool> gt_used(gt_size, false);
 
-    double sum_iou_weighted       = 0.0;
-    double sum_precision_weighted = 0.0;
-    double sum_recall_weighted    = 0.0;
-    double sum_accuracy_weighted  = 0.0;
-    int total_gt_area = 0;
+    double sum_iou = 0.0;
+    double sum_precision = 0.0;
+    double sum_recall = 0.0;
+    double sum_accuracy = 0.0;
 
-    for (size_t k = 0; k < pairs.size(); ++k) {
-        const size_t pi = pairs[k].pred_idx;
-        const size_t gi = pairs[k].gt_idx;
+    for (const auto& [pred_idx, gt_idx, iou, metrics] : pairs) {
+        if (pred_used[pred_idx] || gt_used[gt_idx]) continue;
+        if (iou < iou_threshold) continue;
 
-        if (pred_used[pi] || gt_used[gi]) continue;
-
-        pred_used[pi] = true;
-        gt_used[gi]   = true;
+        pred_used[pred_idx] = true;
+        gt_used[gt_idx] = true;
 
         result.TP_instances++;
 
-        const int area = gt_areas[gi];
-        total_gt_area += area;
-
-        sum_iou_weighted += pairs[k].iou * area;
-        sum_precision_weighted += pairs[k].metrics.Precision() * area;
-        sum_recall_weighted += pairs[k].metrics.TPR() * area;
-        sum_accuracy_weighted += pairs[k].metrics.Accuracy() * area;
-    }
-
-    for (size_t j = 0; j < gt_size; ++j) {
-        if (!gt_used[j]) total_gt_area += gt_areas[j];
-    }
-
-    if (total_gt_area > 0) {
-        result.mean_iou = sum_iou_weighted / total_gt_area;
-        result.mean_precision = sum_precision_weighted / total_gt_area;
-        result.mean_recall = sum_recall_weighted / total_gt_area;
-        result.mean_accuracy = sum_accuracy_weighted / total_gt_area;
+        sum_iou += iou;
+        sum_precision += metrics.Precision();
+        sum_recall += metrics.TPR();
+        sum_accuracy += metrics.Accuracy();
     }
 
     result.FP_instances = pred_size - result.TP_instances;
     result.FN_instances = gt_size - result.TP_instances;
 
+    if (gt_size > 0) {
+        result.mean_iou      = sum_iou / gt_size;
+        result.mean_recall   = sum_recall / gt_size;
+        result.mean_accuracy = sum_accuracy / gt_size;
+    } else {
+        result.mean_iou = result.mean_recall = result.mean_accuracy = 0.0;
+    }
+
+    if (pred_size > 0) {
+        result.mean_precision = sum_precision / pred_size;
+    } else {
+        result.mean_precision = 0.0;
+    }
+
     return result;
 }
+
+static cv::Rect mask_to_bbox(const cv::Mat& m) {
+    CV_Assert(m.type() == CV_8UC1);
+
+    std::vector<cv::Point> pts;
+    cv::findNonZero(m, pts);
+
+    if (pts.empty()) return {};
+    return cv::boundingRect(pts);
+}
+
+std::vector<Detection> detect(const cv::Mat &img, const std::vector<double>& scales) {
+    CV_Assert(!img.empty());
+
+    cv::Mat gray = to_grayscale(img);
+
+    cv::Mat gx, gy, grad;
+    cv::Sobel(gray, gx, CV_32F, 1, 0, 3);
+    cv::Sobel(gray, gy, CV_32F, 0, 1, 3);
+    cv::magnitude(gx, gy, grad);
+
+
+    double mx;
+    cv::minMaxLoc(grad, nullptr, &mx);
+    double gradMax = std::max(1e-6, mx);
+
+    struct ScaleResult {
+        double quality = 0.0;
+        std::vector<Detection> detections;
+    };
+
+    std::vector<ScaleResult> scale_results;
+
+    for (const double scale : scales) {
+        cv::Mat scaled = img.clone();
+        if (scale != 1.0) cv::resize(img, scaled, cv::Size(), scale, scale, cv::INTER_AREA);
+
+        cv::Mat markers = create_segmentation_mask(scaled);
+
+        std::map<int, cv::Mat> instances_map;
+        for (int y = 0; y < markers.rows; ++y) {
+            const int* row = markers.ptr<int>(y);
+            for (int x = 0; x < markers.cols; ++x) {
+                const int label = row[x];
+                if (label <= 0) continue;
+
+                if (!instances_map.contains(label)) instances_map[label] = cv::Mat::zeros(markers.size(), CV_8UC1);
+                instances_map[label].at<uchar>(y, x) = 255;
+            }
+        }
+
+        ScaleResult sr;
+
+        for (auto& it_instances : instances_map) {
+            const cv::Mat img_scaled = it_instances.second;
+            if (cv::countNonZero(img_scaled) < 30) continue;
+
+            cv::Mat new_img;
+            if (scale != 1.0) cv::resize(img_scaled, new_img, img.size(), 0, 0, cv::INTER_NEAREST);
+            else new_img = std::move(img_scaled);
+            const int area = cv::countNonZero(new_img);
+            if (area < 30) continue;
+
+            const cv::Rect bbox = mask_to_bbox(new_img);
+            if (bbox.area() <= 0) continue;
+
+            cv::Mat er, boundary;
+            const cv::Mat kernel = cv::Mat::ones(3, 3, CV_8U);
+            cv::erode(new_img, er, kernel);
+            cv::subtract(new_img, er, boundary);
+
+            double sumG = 0.0;
+            int cntG = 0;
+            for (int y = 0; y < boundary.rows; ++y) {
+                const uchar* bp = boundary.ptr<uchar>(y);
+                const float* gp = grad.ptr<float>(y);
+                for (int x = 0; x < boundary.cols; ++x) {
+                    if (bp[x]) {
+                        sumG += gp[x];
+                        ++cntG;
+                    }
+                }
+            }
+            const double boundary_contrast = (cntG > 0) ? (sumG / cntG) / gradMax : 0.0;
+
+            const double compactness = std::min(1.0, area / static_cast<double>(bbox.area()));
+
+            const double score = std::clamp(0.6 * boundary_contrast + 0.4 * compactness, 0.0, 1.0);
+            if (score < 0.2) continue;
+
+            Detection detection;
+            detection.mask = std::move(new_img);
+            detection.bbox = bbox;
+            detection.score = score;
+
+            sr.detections.emplace_back(detection);
+        }
+
+        if (!sr.detections.empty()) {
+            double sum = 0.0;
+            for (const auto& d : sr.detections) sum += d.score;
+            sr.quality = sum / sr.detections.size();
+        }
+
+        scale_results.push_back(std::move(sr));
+    }
+
+    auto best_it = std::ranges::max_element(scale_results, [](const ScaleResult& a, const ScaleResult& b) { return a.quality < b.quality; });
+
+    if (best_it == scale_results.end()) return {};
+
+    std::vector<Detection>& result = best_it->detections;
+    std::ranges::sort(result, [](const Detection& a, const Detection& b) {return a.score > b.score;});
+
+    return result;
+}
+
+cv::Mat visualize_detection(const cv::Mat &img, const std::vector<Detection> &detections, const double alpha) {
+    CV_Assert(!img.empty());
+
+    for (size_t i = 0; i < detections.size(); ++i) {
+        const Detection detection = detections[i];
+
+        cv::Scalar color(
+           50 + (i * 97)  % 205,
+           50 + (i * 151) % 205,
+           50 + (i * 211) % 205
+       );
+
+        if (!detection.mask.empty()) {
+            CV_Assert(detection.mask.size() == img.size());
+
+            cv::Mat colored(img.size(), img.type(), color);
+            cv::Mat mask_bin;
+            cv::threshold(detection.mask, mask_bin, 0, 255, cv::THRESH_BINARY);
+
+            cv::Mat blended;
+            cv::addWeighted(img, 1.0 - alpha, colored, alpha, 0.0, blended);
+            blended.copyTo(img, mask_bin);
+        }
+
+        cv::rectangle(img, detection.bbox, color, 2);
+    }
+
+    return img;
+}
+
+

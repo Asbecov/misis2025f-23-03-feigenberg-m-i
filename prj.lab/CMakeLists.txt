@@ -6,5 +6,7 @@ add_subdirectory(lab03)
 
 add_subdirectory(lab04)
 
+add_subdirectory(lab05)
+
 add_subdirectory(semcv)
 

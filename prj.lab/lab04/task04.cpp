@@ -1,12 +1,11 @@
 #include <fstream>
 #include <iostream>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #include <semcv/semcv.hpp>
 
-void create_segment_masks(const std::string& input_path, const std::string& output_dir) {
-    const std::vector<std::filesystem::path> path_list = get_list_of_file_paths(input_path);
-
-    for (auto& path : path_list) {
+void create_segment_masks(const std::string& input_lst_path, const std::string& output_dir) {
+    for (const std::vector<std::filesystem::path> path_list = get_list_of_file_paths(input_lst_path); auto& path : path_list) {
         const cv::Mat img = cv::imread(path);
         if (img.empty()) {
             std::cerr << "Failed to load image: " << path.filename() << std::endl;
@@ -31,29 +30,30 @@ void create_segment_masks(const std::string& input_path, const std::string& outp
     }
 }
 
-void assess_segmentation_quality(const std::string& input_path, const std::string& input_mask_path, const std::string& output_dir) {
-    const std::vector<std::filesystem::path> mask_path_list = get_list_of_file_paths(input_mask_path);
+void assess_segmentation_quality(const std::string& input_img_path, const std::string& input_mask_lst_path, const std::string& output_assessment_dir) {
+    const std::vector<std::filesystem::path> mask_path_list = get_list_of_file_paths(input_mask_lst_path);
 
     std::vector<cv::Mat> gt_masks;
     for (auto& path : mask_path_list) {
         cv::Mat img = cv::imread(path, cv::IMREAD_GRAYSCALE);
-        gt_masks.emplace_back(img);
         if (img.empty()) {
             std::cerr << "Failed to load image: " << path.filename() << std::endl;
             continue;
         }
+        cv::threshold(img, img, 0, 255, cv::THRESH_BINARY);
+        gt_masks.emplace_back(img);
     }
 
-    const cv::Mat img = cv::imread(input_path);
+    const cv::Mat img = cv::imread(input_img_path);
     if (img.empty()) {
-        std::cerr << "Failed to load image: " << input_path << std::endl;
+        std::cerr << "Failed to load image: " << input_img_path << std::endl;
         return;
     }
 
-    std::string stats_path = output_dir + "/threshold_analysis.csv";
+    std::string stats_path = output_assessment_dir + "/threshold_analysis.csv";
     std::ofstream ofs(stats_path);
 
-    ofs << "FG Threshold,mean iou,mean_precision,mean_recall,mean_accuracy" << std::endl;
+    ofs << "FG Threshold,Mean IoU,Mean Precision,Mean TPR,Mean Accuracy" << std::endl;
 
     double best_iou = 0;
     double best_thresh = 0;
@@ -84,7 +84,7 @@ void assess_segmentation_quality(const std::string& input_path, const std::strin
     std::cout << "Best threshold: " << best_thresh << " (IoU = " << best_iou << ")" << std::endl;
 
     const cv::Mat best_segmentation = create_segmentation_mask(img, best_thresh);
-    const std::string best_segmentation_path = output_dir + "/best_segmentation.png";
+    const std::string best_segmentation_path = output_assessment_dir + "/best_segmentation.png";
     double maxVal;
     cv::minMaxLoc(best_segmentation, nullptr, &maxVal);
     cv::Mat mask8u;
@@ -92,7 +92,7 @@ void assess_segmentation_quality(const std::string& input_path, const std::strin
     cv::imwrite(best_segmentation_path, mask8u);
 
     const cv::Mat best_overlay = overlay_segmentation(img, best_segmentation);
-    const std::string best_overlay_path = output_dir + "/best_overlay.png";
+    const std::string best_overlay_path = output_assessment_dir + "/best_overlay.png";
     cv::imwrite(best_overlay_path, best_overlay);
 
     std::cout << std::endl << "Best Segmentation Metrics " << std::endl;
@@ -105,8 +105,8 @@ void assess_segmentation_quality(const std::string& input_path, const std::strin
 int main(const int argc, const char **argv) {
     if (argc < 4) {
         std::cerr << "Usage: " << std::endl
-                  << "Create segmentation: " << argv[0] << "--create input_path output_dir" << std::endl
-                  << "Asses segmentation quality: " << argv[0] << "--assess input_path input_mask_path output_dir" << std::endl;
+                  << "Create segmentation: " << argv[0] << "--create input_lst_path output_dir" << std::endl
+                  << "Asses segmentation quality: " << argv[0] << "--assess input_img_path input_mask_lst_path output_assessment_dir" << std::endl;
         return 1;
     }
 
