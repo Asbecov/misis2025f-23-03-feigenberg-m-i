@@ -333,88 +333,100 @@ SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, 
 
     SegmentationMetrics result;
 
-    const int rows = predicted_markers.rows;
-    const int cols = predicted_markers.cols;
-
     std::map<int, cv::Mat> pred_instances_map;
-    for (int y = 0; y < rows; ++y) {
+    for (int y = 0; y < predicted_markers.rows; ++y) {
         const int* row_ptr = predicted_markers.ptr<int>(y);
-        for (int x = 0; x < cols; ++x) {
+
+        for (int x = 0; x < predicted_markers.cols; ++x) {
             int label = row_ptr[x];
             if (label <= 0) continue;
 
-            if (!pred_instances_map.contains(label)) {
-                pred_instances_map[label] = cv::Mat::zeros(predicted_markers.size(), CV_8UC1);
-            }
+            if (!pred_instances_map.contains(label)) pred_instances_map[label] = cv::Mat::zeros(predicted_markers.size(), CV_8UC1);
             pred_instances_map[label].at<uchar>(y, x) = 255;
         }
     }
 
     std::vector<cv::Mat> pred_instances;
-    for (std::map<int, cv::Mat>::iterator it = pred_instances_map.begin(); it != pred_instances_map.end(); ++it) {
-        if (cv::countNonZero(it->second) > 20) {
-            pred_instances.push_back(it->second);
-        }
+    for (auto it = pred_instances_map.begin(); it != pred_instances_map.end(); ++it) {
+        if (cv::countNonZero(it->second) > 20) pred_instances.push_back(it->second);
     }
+
+    const size_t pred_size = pred_instances.size();
+    const size_t gt_size   = gt_masks.size();
 
     std::vector<int> gt_areas;
-    for (size_t j = 0; j < gt_masks.size(); ++j) {
+    for (size_t j = 0; j < gt_size; ++j) {
         gt_areas.push_back(cv::countNonZero(gt_masks[j]));
     }
-    std::vector<bool> gt_used(gt_masks.size(), false);
 
-    double sum_iou_weighted = 0.0;
-    int total_gt_area = 0;
+    struct IoUPair {
+        size_t pred_idx;
+        size_t gt_idx;
+        double iou;
+        BinaryClassificationMetrics metrics;
+    };
 
-    for (size_t i = 0; i < pred_instances.size(); ++i) {
-        double best_iou = 0.0;
-        int best_gt = -1;
-        BinaryClassificationMetrics best_metrics;
+    std::vector<IoUPair> pairs;
 
-        for (size_t j = 0; j < gt_masks.size(); ++j) {
-            if (gt_used[j]) continue;
-
+    for (size_t i = 0; i < pred_size; ++i) {
+        for (size_t j = 0; j < gt_size; ++j) {
             BinaryClassificationMetrics metrics = calc_binary_metrics(pred_instances[i], gt_masks[j]);
-            if (const double iou = metrics.IoU(); iou > best_iou) {
-                best_iou = iou;
-                best_gt = j;
-                best_metrics = metrics;
+
+            if (const double iou = metrics.IoU(); iou >= iou_threshold) {
+                IoUPair pair;
+                pair.pred_idx = i;
+                pair.gt_idx = j;
+                pair.iou = iou;
+                pair.metrics = metrics;
+                pairs.push_back(pair);
             }
-        }
-
-        if (best_gt != -1 && best_iou >= iou_threshold) {
-            gt_used[best_gt] = true;
-            result.TP_instances++;
-
-            const int area = gt_areas[best_gt];
-            sum_iou_weighted += best_metrics.IoU() * area;
-            total_gt_area += area;
-
-            result.mean_precision += best_metrics.Precision();
-            result.mean_recall    += best_metrics.TPR();
-            result.mean_accuracy  += best_metrics.Accuracy();
         }
     }
 
-    for (size_t j = 0; j < gt_masks.size(); ++j) {
-        if (!gt_used[j]) {
-            total_gt_area += gt_areas[j];
-        }
+    std::ranges::sort(pairs, [](const IoUPair& a, const IoUPair& b) { return a.iou > b.iou; });
+
+    std::vector<bool> pred_used(pred_size, false);
+    std::vector<bool> gt_used(gt_size, false);
+
+    double sum_iou_weighted       = 0.0;
+    double sum_precision_weighted = 0.0;
+    double sum_recall_weighted    = 0.0;
+    double sum_accuracy_weighted  = 0.0;
+    int total_gt_area = 0;
+
+    for (size_t k = 0; k < pairs.size(); ++k) {
+        const size_t pi = pairs[k].pred_idx;
+        const size_t gi = pairs[k].gt_idx;
+
+        if (pred_used[pi] || gt_used[gi]) continue;
+
+        pred_used[pi] = true;
+        gt_used[gi]   = true;
+
+        result.TP_instances++;
+
+        const int area = gt_areas[gi];
+        total_gt_area += area;
+
+        sum_iou_weighted += pairs[k].iou * area;
+        sum_precision_weighted += pairs[k].metrics.Precision() * area;
+        sum_recall_weighted += pairs[k].metrics.TPR() * area;
+        sum_accuracy_weighted += pairs[k].metrics.Accuracy() * area;
+    }
+
+    for (size_t j = 0; j < gt_size; ++j) {
+        if (!gt_used[j]) total_gt_area += gt_areas[j];
     }
 
     if (total_gt_area > 0) {
         result.mean_iou = sum_iou_weighted / total_gt_area;
+        result.mean_precision = sum_precision_weighted / total_gt_area;
+        result.mean_recall = sum_recall_weighted / total_gt_area;
+        result.mean_accuracy = sum_accuracy_weighted / total_gt_area;
     }
 
-    if (result.TP_instances > 0) {
-        const double n = static_cast<double>(result.TP_instances);
-        result.mean_precision /= n;
-        result.mean_recall    /= n;
-        result.mean_accuracy  /= n;
-    }
-
-    result.FP_instances = pred_instances.size() - result.TP_instances;
-    result.FN_instances = gt_masks.size() - result.TP_instances;
+    result.FP_instances = pred_size - result.TP_instances;
+    result.FN_instances = gt_size - result.TP_instances;
 
     return result;
 }

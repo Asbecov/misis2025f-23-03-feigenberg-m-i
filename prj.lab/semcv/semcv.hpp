@@ -99,6 +99,4 @@ cv::Mat overlay_segmentation(const cv::Mat& img, const cv::Mat& mask);
 
 SegmentationMetrics calc_segmentation_metrics(const cv::Mat& predicted_markers, const std::vector<cv::Mat>& gt_masks, const double threshold, double iou_threshold = 0.5);
 
-cv::Mat visualize_match(const cv::Mat& gt, const cv::Mat& segment);
-
 #endif
