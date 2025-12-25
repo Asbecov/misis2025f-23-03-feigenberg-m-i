@@ -113,4 +113,10 @@ std::vector<Detection> detect(const cv::Mat& img, const std::vector<double>& sca
 
 cv::Mat visualize_detection(const cv::Mat& img, const std::vector<Detection>& detections, const double alpha = 0.4);
 
+cv::Mat visualize_detection_with_gt(const cv::Mat &img, const std::vector<Detection> &detections, const std::vector<cv::Rect>& gt_bboxes, const double alpha = 0.4);
+
+double calc_iou_by_bbox(const cv::Rect& box1, const cv::Rect& box2);
+
+double calc_mean_iou_by_bbox(const std::vector<Detection>& detections, const std::vector<cv::Rect>& gt_bboxes);
+
 #endif

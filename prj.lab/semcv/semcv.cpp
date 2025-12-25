@@ -534,6 +534,7 @@ std::vector<Detection> detect(const cv::Mat &img, const std::vector<double>& sca
 
 cv::Mat visualize_detection(const cv::Mat &img, const std::vector<Detection> &detections, const double alpha) {
     CV_Assert(!img.empty());
+    cv::Mat res = img.clone();
 
     for (size_t i = 0; i < detections.size(); ++i) {
         const Detection detection = detections[i];
@@ -552,14 +553,115 @@ cv::Mat visualize_detection(const cv::Mat &img, const std::vector<Detection> &de
             cv::threshold(detection.mask, mask_bin, 0, 255, cv::THRESH_BINARY);
 
             cv::Mat blended;
-            cv::addWeighted(img, 1.0 - alpha, colored, alpha, 0.0, blended);
-            blended.copyTo(img, mask_bin);
+            cv::addWeighted(res, 1.0 - alpha, colored, alpha, 0.0, blended);
+            blended.copyTo(res, mask_bin);
         }
 
-        cv::rectangle(img, detection.bbox, color, 2);
+        cv::rectangle(res, detection.bbox, color, 2);
+
+        std::ostringstream oss;
+        oss << std::setprecision(2) << detection.score;
+
+        int baseline = 0;
+        const cv::Size text_size = cv::getTextSize(oss.str(), cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+
+        const int text_x = detection.bbox.x + (detection.bbox.width - text_size.width) / 2;
+        const int text_y = detection.bbox.y + (detection.bbox.height + text_size.height) / 2;
+
+        cv::putText(res, oss.str(), cv::Point(text_x, text_y), cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv::LINE_AA);
     }
 
-    return img;
+    return res;
+}
+
+cv::Mat visualize_detection_with_gt(const cv::Mat &img, const std::vector<Detection> &detections, const std::vector<cv::Rect> &gt_bboxes, const double alpha) {
+    cv::Mat result_img = img.clone();
+
+    const cv::Scalar detection_color(255, 0, 0);
+    const cv::Scalar gt_color(0, 255, 0);
+    const cv::Scalar error_color(0, 0, 255);
+
+    for (const auto& detection : detections) {
+        cv::rectangle(result_img, detection.bbox, detection_color, 1);
+
+        std::ostringstream oss;
+        oss << std::setprecision(2) << detection.score;
+
+        int baseline = 0;
+        const cv::Size text_size = cv::getTextSize(oss.str(), cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+
+        const int text_x = detection.bbox.x + (detection.bbox.width - text_size.width) / 2;
+        const int text_y = detection.bbox.y + (detection.bbox.height + text_size.height) / 2;
+
+        cv::putText(result_img, oss.str(), cv::Point(text_x, text_y), cv::FONT_HERSHEY_SIMPLEX, 0.5, detection_color, 1, cv::LINE_AA);
+    }
+    for (const auto& gt_bbox : gt_bboxes) {
+        cv::rectangle(result_img, gt_bbox, gt_color, 1);
+    }
+
+    for (const auto& detection : detections) {
+        bool matched = false;
+        for (const auto& gt_bbox : gt_bboxes) {
+            const double iou = (detection.bbox & gt_bbox).area() / static_cast<double>(detection.bbox.area() + gt_bbox.area() - (detection.bbox & gt_bbox).area());
+            if (iou > 0.5) {
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched) {
+            cv::rectangle(result_img, detection.bbox, error_color, 2);
+        }
+    }
+
+    if (alpha < 1.0) {
+        cv::Mat blended;
+        cv::addWeighted(result_img, alpha, img, 1.0 - alpha, 0, blended);
+        return blended;
+    }
+
+    return result_img;
+}
+
+double calc_iou_by_bbox(const cv::Rect& detect_bbox, const cv::Rect& gt_bbox) {
+    const cv::Rect intersection = detect_bbox & gt_bbox;
+    if (intersection.empty()) return 0.0;
+
+    const double area_intersection = intersection.area();
+    const double area_union = detect_bbox.area() + gt_bbox.area() - area_intersection;
+
+    return area_intersection / area_union;
+}
+
+double calc_mean_iou_by_bbox(const std::vector<Detection>& detections, const std::vector<cv::Rect>& gt_bboxes) {
+    CV_Assert(detections.empty() || gt_bboxes.empty() || detections.size() != gt_bboxes.size());
+
+    std::vector<bool> matched_gt(gt_bboxes.size(), false);
+    double total_iou = 0.0;
+    int count = 0;
+
+    for (const auto& detection : detections) {
+        double best_iou = 0.0;
+        int best_gt_idx = -1;
+
+        for (size_t i = 0; i < gt_bboxes.size(); ++i) {
+            if (matched_gt[i]) continue;
+
+            const double iou = calc_iou_by_bbox(detection.bbox, gt_bboxes[i]);
+            if (iou > best_iou) {
+                best_iou = iou;
+                best_gt_idx = i;
+            }
+        }
+
+        if (best_gt_idx != -1 && best_iou > 0.0) {
+            matched_gt[best_gt_idx] = true;
+            total_iou += best_iou;
+            ++count;
+        }
+    }
+
+    return (count > 0) ? total_iou / count : 0.0;
 }
 
 
